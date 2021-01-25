@@ -1,2 +1,3 @@
-# esm244-w2021-lab4
-ESM 244 Lab Week 4 (Ordinal logistic regression, time series intro, some more useful Shiny stuff)
+# ESM 244 Week 4 Lab
+
+Shiny interactive RMarkdown, time series visualization and wrangling, Shiny theming tools
