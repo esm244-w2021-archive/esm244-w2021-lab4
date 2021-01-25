@@ -1,0 +1,53 @@
+---
+title: 'Part 1: Interactive RMarkdown'
+author: "Allison Horst"
+output: html_notebook
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(palmerpenguins)
+```
+
+To create this document, make sure to choose the "Shiny document" option when you create the file! That will add the `runtime: shiny` line to your YAML, and give you some nice examples you can check out. 
+
+Once you create the new RMarkdown Shiny document, click 'Run Document' up top to see what appears. An interactive document where users can change what they see! 
+
+How cool is this for your boss, client, etc? Some of the benefits of an interactive app, without the bulk -- this is a nice option for simple & sleek documents where you want the user to have some flexibility about variables, etc. that appear in a graph or table. 
+
+Let's make something new. 
+
+### Attach packages
+
+In the setup chunk, attach:
+
+- `tidyverse`
+- `palmerpenguins`
+
+### Add some interactivity! 
+
+```{r flippers, echo=FALSE}
+inputPanel(
+  selectInput(inputId = "pick_spp", label = "Pick penguin species:",
+              choices = c("Adélie" = "Adelie", "Chinstrap", "Gentoo"), selected = "Adelie"),
+  
+  sliderInput("pt_size", label = "Set point size:",
+              min = 1, max = 10, value = 5, step = 0.5)
+)
+
+penguin_set <- reactive({
+  penguins %>% 
+  filter(species == input$pick_spp)
+})
+
+renderPlot({
+  ggplot(data = penguin_set(), aes(x = flipper_length_mm, y = body_mass_g)) +
+    geom_point(size = input$pt_size)
+})
+```
+
+...which is pretty cool. 
+
+You can publish to a free [shinyapps.io](https://www.shinyapps.io/) account! 

@@ -1,0 +1,260 @@
+---
+title: 'Part 2: tsibble basics for time series exploration'
+author: "Allison Horst"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(here)
+library(lubridate)
+library(tsibble)
+library(feasts)
+library(slider)
+```
+
+## 1. Always look at your data
+
+Toolik Station (LTER) meteorological data (Source: Source: Shaver, G. 2019. A multi-year DAILY file for the Toolik Field Station at Toolik Lake, AK starting 1988 to present. ver 4. Environmental Data Initiative.)
+
+Notice that the date parsed (assumed class) as *character.* That limits the nice time series features we can use, so we'll quickly convert it into a tsibble (a time series data frame) so that we can use functions in `feasts` and `fable` to explore & analyze it. 
+
+### Read in data: 
+
+```{r}
+toolik <- read_csv(here("data","toolikweather.csv"))
+```
+
+### Convert the data frame to a tsibble
+
+Go ahead and try plotting the data as imported. 
+
+```{r, eval = FALSE}
+ggplot(data = toolik, aes(x = date, y = mean_airtemp)) +
+  geom_line()
+
+# Booo we get a warning (only one observation per series)
+```
+
+Notice that it doesn't work - because R doesn't understand the date is a *date* until we tell it.
+
+Let's go ahead and convert it to a tsibble using the `as_tsibble()` function. First, we'll need to convert the date to a `date` class, *then* convert to a tsibble:
+
+```{r}
+toolik_ts <- toolik %>% 
+  mutate(date = lubridate::mdy(date)) %>% 
+  as_tsibble(key = NULL, index = date)
+```
+
+Now let's plot it: 
+```{r}
+ggplot(data = toolik_ts, aes(x = date, y = mean_airtemp)) +
+  geom_line() +
+  labs(x = "Date",
+       y = "Mean daily air temperature (Celsius)\n at Toolik Station")
+```
+
+We need to ask some big picture questions at this point, like: 
+
+- Does there appear to be an overall trend? No.
+- Does there appear to be seasonality? Yes.
+- Does there appear to be cyclicality? Unsure.
+- Any notable outliers or additional patterns? No noted.
+
+## 2. Use `index_by()` to aggregate time series by increments
+
+We will use `index_by()` instead of `group_by()` to do the trick. See `?index_by()` to group by a time index, then `summarize()` to specify what to calulate & return for each interval. 
+
+```{r}
+toolik_month <- toolik_ts %>% 
+  index_by(yr_mo = ~yearmonth(.)) %>% 
+  summarize(monthly_mean_temp = mean(mean_airtemp, na.rm = TRUE))
+```
+
+Now let's take a look: 
+```{r}
+ggplot(data = toolik_month, aes(x = yr_mo, y = monthly_mean_temp)) +
+  geom_line() 
+
+# Or break it up by month: 
+toolik_month %>% 
+  ggplot(aes(x = year(yr_mo), y = monthly_mean_temp)) +
+  geom_line() +
+  facet_wrap(~month(yr_mo, label = TRUE)) +
+  labs(x = "Year",
+       y = "Annual mean air temperature (Celsius)",
+       title = "Toolik Station mean annual air temperature",
+       subtitle = "1988 - 2018",
+       caption = "Source: Shaver, G. 2019. A multi-year DAILY \nweather file for the Toolik Field Station at Toolik Lake, AK\n starting 1988 to present. ver 4. Environmental Data Initiative.")
+```
+
+Can you do other increments with `index_by()`? Absolutely! **See `?index_by()` for grouping options!**
+
+Let's find the yearly average for 2000: 
+
+```{r}
+toolik_annual <- toolik_ts %>% 
+  index_by(yearly = ~year(.)) %>% 
+  summarize(annual_airtemp = mean(mean_airtemp, na.rm = TRUE))
+
+ggplot(data = toolik_annual, aes(x = yearly, y = annual_airtemp)) +
+  geom_line()
+```
+
+And how about a weekly average?
+```{r}
+toolik_weekly <- toolik_ts %>% 
+  index_by(weekly = ~yearweek(.)) %>% 
+  summarize(weekly_airtemp = mean(mean_airtemp, na.rm = TRUE))
+
+ggplot(data = toolik_weekly, aes(x = weekly, y = weekly_airtemp)) +
+  geom_line()
+```
+## 3. Use `filter_index()` to filter by date-times!
+
+We can use `filter_index()` specifically to help us filter data by time spans. See `?filter_index()` for more information.
+
+**Example 1:** Filter from June 2000 through October 2001
+
+```{r}
+toolik_ts %>% 
+  filter_index("2000-06" ~ "2001-10")
+```
+
+**Example 2:** Filter from April 10, 2006 to May 15, 2006
+
+```{r}
+toolik_ts %>% 
+  filter_index("2006-04-10" ~ "2006-05-15")
+```
+
+**Example 3:** Filter from December 20, 2017 to the end of the dataset
+
+```{r}
+toolik_ts %>% 
+  filter_index("2017-12-20" ~ .)
+```
+
+## 4. Explore changes in seasonality with seasonplots
+
+Let's look at seasonality over the years with a seasonplot, using the `feasts::gg_season()` function. Notice that we can still do wrangling on a tsibble like we would with a normal data frame: 
+
+```{r}
+toolik_ts %>% 
+  filter(year(date) > 2014) %>% 
+  gg_season(y = mean_airtemp)
+```
+
+Daily measurements seems a bit excessive to return in this visualization, right? Maybe it makes more sense to use the monthly averages in ``. 
+
+```{r}
+# Now a season plot: 
+toolik_month %>% 
+  gg_season(y = monthly_mean_temp) +
+  theme_minimal() +
+  labs(x = "Year",
+       y = "Mean monthly air temperature (Celsius)",
+       title = "Toolik Station air temperature")
+```
+
+## 5. Seasonal subseries plots
+
+Sometimes it can be useful to explore how values within one season/month/etc. change over time (e.g. across years). 
+
+We can use `gg_subseries()` to explore how values change within a specified window over time. 
+
+Do you notice any trends that differ across the months? 
+
+```{r}
+toolik_month %>% 
+  gg_subseries(monthly_mean_temp)
+```
+
+## 6. Moving averages in tsibbles
+
+We'll use the `slider` package to find moving (or rolling) averages for different window sizes. 
+
+The general structure will tend to be something like: 
+
+`df %>% slide(variable, function, .before = , .after = )`
+
+Let's make a test vector just so we can see how this works: 
+
+```{r}
+set.seed(2021)
+test<- rnorm(100, mean = 40, sd = 10)
+
+# Show the series based on values +2 and -2 from each observation
+# Use ~.x to show the windows
+slide(test, ~.x, .before = 2, .after = 2)
+
+# Change that to a function name to actually calculate something for each window
+# Note that I add `as.numeric` here, since the outcome is otherwise a list
+w5 <- as.numeric(slide(test, mean, .before = 2, .after = 2))
+w5
+
+# Find the mean value of a window with n = 11, centered:
+w11 <- as.numeric(slide(test, mean, .before = 5, .after = 5))
+w11
+
+# Find the mean value of a window with n = 19, centered:
+w19 <- as.numeric(slide(test, mean, .before = 9, .after = 9))
+w19
+
+# Plot these together: 
+combo <- data_frame(time = seq(1:100), test, w5, w11, w19)
+
+ggplot(data = combo) +
+  geom_line(aes(x = time, y = test)) +
+  geom_line(aes(x = time, y = w5), color = "red") +
+  geom_line(aes(x = time, y = w11), color = "blue") +
+  geom_line(aes(x = time, y = w19), color = "orange")
+
+```
+
+
+Now for an example with our Toolik Station data, let's say we want to find the *average* value at each observation, with a window that extends forward and backward n days from the observation:
+
+```{r}
+roll_toolik_15 <- toolik_ts %>% 
+  mutate(ma_15d = as.numeric(slide(toolik_ts$mean_airtemp, mean, .before = 7, .after = 7)))
+
+roll_toolik_61 <- toolik_ts %>% 
+  mutate(ma_61d = as.numeric(slide(toolik_ts$mean_airtemp, mean, .before = 30, .after = 30)))
+
+ggplot() +
+  geom_line(data = toolik_ts, aes(x = date, y = mean_airtemp), size = 0.2, color = "gray") +
+  geom_line(data = roll_toolik_15, aes(x = date, y = ma_15d), color = "orange") +
+  geom_line(data = roll_toolik_61, aes(x = date, y = ma_61d), color = "red") +
+  theme_minimal()
+
+```
+
+## 7. Autocorrelation function
+
+We'll look at outcomes for both daily lags (yikes) and monthly lags (cool).
+
+```{r}
+toolik_ts %>%
+  ACF(mean_airtemp) %>%
+  autoplot()
+
+toolik_month %>% 
+  ACF(monthly_mean_temp) %>% 
+  autoplot()
+```
+
+##8. Decomposition
+
+Here we will use STL decomposition (Seasonal, Trend, and Loess) decomposition. You can read about the advantages of STL decomposition here: https://otexts.com/fpp2/stl.html.
+
+
+```{r}
+toolik_dec <- toolik_month %>% 
+  model(STL(monthly_mean_temp ~ season(window = Inf)))
+
+components(toolik_dec) %>% autoplot()
+```
+
+## END Part 2
